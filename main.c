@@ -31,8 +31,8 @@ volatile int toggled = 0;
 #define ALERT_1_DURATION 30
 #define ALERT_2_DURATION 30
 
-// Timer 0 overflow. Called (1e6/256)/1024 times per second (~3.8)
-ISR(TIM0_OVF_vect) {    
+// WDT Timeout Interrupt
+ISR(WDT_vect) {    
     count++;
    
     // Startup state. Beep for a while.
@@ -42,7 +42,8 @@ ISR(TIM0_OVF_vect) {
             // Should also sleep_mode
             if (count == STARTUP_DELAY) {
 
-                TIMSK = 0;
+                // Disable WDT interrupt
+                WDTCR &= ~_BV(WDIE);
 
                 // Enable hardware interrupt.
                 GIMSK = 1<<INT0;
@@ -90,7 +91,7 @@ ISR(TIM0_OVF_vect) {
                 // The LED was swtiched on at the end of the last state. Leave it for now.
                 if (count == ALERT_2_DURATION) {
                     // Now disable the clock, and transition to the final state
-                    TIMSK = 0; 
+                    WDTCR &= ~_BV(WDIE);
                     PORTB &= ~_BV(PB4);                
                     state = ALERT_3;
 
@@ -100,7 +101,6 @@ ISR(TIM0_OVF_vect) {
                 break;
         case ALERT_3:
                 // Nothing specific happens here. The LED should be on.
-                //sleep_mode();
                 break;
     }
 }
@@ -109,7 +109,7 @@ ISR(TIM0_OVF_vect) {
 ISR(INT0_vect) {
     toggled = 1;
     // re-enable the clock
-    TIMSK  = 1<<TOIE0; 
+    WDTCR |= _BV(WDIE);
 }
 
 
@@ -119,20 +119,9 @@ void init (){
     /* PB3 is digital output */
     DDRB |= _BV (PB3);   
     
-    /*
-     * TIMER SETUP
-     */
+    // Set up the watchdog timer - ~0.5s timeout 
+    WDTCR = (1<<WDP2) | (1<<WDP0) | (1<<WDIE);
     
-
-    // Timer clock = system clock / 1024
-    TCCR0B = (1<<CS02) | (1<<CS00);
-   
-    // Clear pending interrupts
-    TIFR = 1<<TOV0; 
-
-    // Enable Timer Overflow interrupt
-    TIMSK  = 1<<TOIE0; 
-
     // Bits 0 and 1 of the MCUCR control the external interrupt. 
     // 00 -> trigger on low
     // 01 -> trigger on any
@@ -143,8 +132,6 @@ void init (){
    MCUCR = (1<<ISC01) | (0<<ISC00);
 
    set_sleep_mode(SLEEP_MODE_IDLE);
-
-
 }
 
 int main (void)
