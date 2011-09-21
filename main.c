@@ -2,13 +2,13 @@
     File:       main.c
     Version:    1.0.0
     Date:       May. 12, 2006
-    
+
     TinyAlarm - ATTiny45V based alarm
-    
+
 */
- 
+
 #define F_CPU 1000000UL  /* 1 MHz Internal Oscillator */
- 
+
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <inttypes.h>
@@ -32,7 +32,7 @@ volatile int toggled = 0;
 #define ALERT_2_DURATION 30
 
 // Enable hardware interrupt.
-void enable_pcie() 
+void enable_pcie()
 {
     GIMSK |= 1<<PCIE;
     PCMSK |= 1<<PCINT0;
@@ -45,13 +45,13 @@ void disable_pcie()
     PCMSK &= ~(1<<PCINT0);
 }
 
-void act() 
+void act()
 {
     count++;
-   
+
     // Startup state. Beep for a while.
     switch(state) {
-        case  STARTUP: 
+        case  STARTUP:
             // When we get here, transition to the ARMED state and disable the clock.
             if (count == STARTUP_DELAY) {
 
@@ -59,9 +59,9 @@ void act()
                 WDTCR &= ~_BV(WDIE);
 
                 enable_pcie();
-               
+
                 // Alarm off.
-                PORTB &= ~_BV(PB4);                
+                PORTB &= ~_BV(PB4);
 
                 // Reset count for the next state which needs it.
                 count = 0;
@@ -102,7 +102,7 @@ void act()
                 if (count == ALERT_2_DURATION) {
                     // Now disable the clock, and transition to the final state
                     WDTCR &= ~_BV(WDIE);
-                    PORTB &= ~_BV(PB4);                
+                    PORTB &= ~_BV(PB4);
                     state = ALERT_3;
 
                     // Reset count for the next state which needs it.
@@ -116,7 +116,7 @@ void act()
 }
 
 // WDT Timeout Interrupt
-ISR(WDT_vect) {    
+ISR(WDT_vect) {
     act();
 }
 
@@ -127,16 +127,15 @@ ISR(PCINT0_vect) {
     toggled = 1;
     // re-enable the clock
     WDTCR |= _BV(WDIE);
-    act();
 }
 
 void init (){
     /* PB4 is digital output */
-    DDRB = _BV (PB4);   
+    DDRB = _BV (PB4);
     /* PB3 is digital output */
-    DDRB |= _BV (PB3);   
+    DDRB |= _BV (PB3);
 
-    // Set up the watchdog timer - ~0.5s timeout 
+    // Set up the watchdog timer - ~0.5s timeout
     WDTCR = (1<<WDP2) | (1<<WDP0) | (1<<WDIE);
 
     // Enable pin change inerrupts
@@ -149,7 +148,7 @@ int main (void)
 {
     cli();
     init();
-    sei(); 
+    sei();
 
     while (1) {
         sleep_mode();
