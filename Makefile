@@ -1,5 +1,5 @@
 # AVR-GCC Makefile
-PROJECT=tutorial_1
+PROJECT=tiny_alarm
 SOURCES=main.c
 CC=avr-gcc
 OBJCOPY=avr-objcopy
