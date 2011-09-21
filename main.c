@@ -31,22 +31,34 @@ volatile int toggled = 0;
 #define ALERT_1_DURATION 30
 #define ALERT_2_DURATION 30
 
-// WDT Timeout Interrupt
-ISR(WDT_vect) {    
+// Enable hardware interrupt.
+void enable_pcie() 
+{
+    GIMSK |= 1<<PCIE;
+    PCMSK |= 1<<PCINT0;
+}
+
+// Disable the external interrupt.
+void disable_pcie()
+{
+    GIMSK &= ~(1<<PCIE);
+    PCMSK &= ~(1<<PCINT0);
+}
+
+void act() 
+{
     count++;
    
     // Startup state. Beep for a while.
     switch(state) {
         case  STARTUP: 
             // When we get here, transition to the ARMED state and disable the clock.
-            // Should also sleep_mode
             if (count == STARTUP_DELAY) {
 
                 // Disable WDT interrupt
                 WDTCR &= ~_BV(WDIE);
 
-                // Enable hardware interrupt.
-                GIMSK = 1<<INT0;
+                enable_pcie();
                
                 // Alarm off.
                 PORTB &= ~_BV(PB4);                
@@ -68,8 +80,6 @@ ISR(WDT_vect) {
         case ALERT_1:
                 // Enable the indicator LED - stays on forever now :)
                 PORTB |= _BV(PB3);
-                // Disable the hardware interrupt
-                GIMSK = 0;
 
                 // Beep for a while. Then Transition to the next state
                 // Leave the clock running.
@@ -105,39 +115,43 @@ ISR(WDT_vect) {
     }
 }
 
+// WDT Timeout Interrupt
+ISR(WDT_vect) {    
+    act();
+}
+
 // External interrupt 0
-ISR(INT0_vect) {
+ISR(PCINT0_vect) {
+    disable_pcie();
+
     toggled = 1;
     // re-enable the clock
     WDTCR |= _BV(WDIE);
+    act();
 }
-
 
 void init (){
     /* PB4 is digital output */
     DDRB = _BV (PB4);   
     /* PB3 is digital output */
     DDRB |= _BV (PB3);   
-    
+
     // Set up the watchdog timer - ~0.5s timeout 
     WDTCR = (1<<WDP2) | (1<<WDP0) | (1<<WDIE);
-    
-    // Bits 0 and 1 of the MCUCR control the external interrupt. 
-    // 00 -> trigger on low
-    // 01 -> trigger on any
-    // 10 -> trigger on fall
-    // 11 -> triggers on rising 
-    
-    // Trigger on falling
-   MCUCR = (1<<ISC01) | (0<<ISC00);
 
-   set_sleep_mode(SLEEP_MODE_IDLE);
+    // Enable pin change inerrupts
+    enable_pcie();
+
+    set_sleep_mode(SLEEP_MODE_PWR_DOWN);
 }
 
 int main (void)
 {
+    cli();
     init();
     sei(); 
-    
-    while(1) {}
+
+    while (1) {
+        sleep_mode();
+    }
 }
