@@ -23,8 +23,9 @@
      * The count variable is an unsigned integer. This means the maximum
        duration is 255/2 seconds. Count could be made 'long' if necessary.
      * Only one pin-change interrupt is active by default. A second could be
-       added by modifying the *_pcie functions and adding an ISR.
-     * I'm not sure I've implemented the sleep functionality correctly!
+       added by modifying the *_pcie functions and adding an ISR. If you do
+       this, remember to update which pull-up resistors you activate.
+     * Finally, I'm not sure I've implemented the sleep functionality correctly!
 
 */
 
@@ -196,6 +197,10 @@ void init (){
     DDRB |= _BV (ALARM_PIN);
     /* PB3 is digital output */
     DDRB |= _BV (LED_PIN);
+
+    /* Enable interal pull-up resitors for unused pins (6 and 7) */
+    PORTB |= _BV(PB1);
+    PORTB |= _BV(PB2);
 
     /* Set up the watchdog timer - ~0.5s timeout */
     WDTCR = (1<<WDP2) | (1<<WDP0) | (1<<WDIE);
