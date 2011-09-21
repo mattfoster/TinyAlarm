@@ -39,6 +39,9 @@
 #define ALERT_1_DURATION 30
 #define ALERT_2_DURATION 30
 
+#define ALARM_PIN PB4
+#define LED_PIN PB3
+
 enum states {
     STARTUP,
     ARMED,
@@ -49,7 +52,6 @@ enum states {
 
 volatile enum states state = STARTUP;
 volatile unsigned int count = 0;
-volatile int toggled = 0;
 
 /*  Enable hardware interrupt. */
 void enable_pcie()
@@ -65,8 +67,45 @@ void disable_pcie()
     PCMSK &= ~(1<<PCINT0);
 }
 
+/* Enable WDT interrupt */
+void enable_wdie()
+{
+    WDTCR |= _BV(WDIE);
+}
+
+/* Disable WDT interrupt */
+void disable_wdie()
+{
+    WDTCR &= ~_BV(WDIE);
+}
+
+void toggle_alarm()
+{
+    PORTB ^= _BV(ALARM_PIN);
+}
+
+void alarm_off()
+{
+    PORTB &= ~_BV(ALARM_PIN);
+}
+
+void alarm_on()
+{
+    PORTB |= _BV(ALARM_PIN);
+}
+
+void led_on()
+{
+    PORTB |= _BV(LED_PIN);
+}
+
+/* This function does all the work. It is only called by the WDT interrupt.
+ * When the chip is woken from sleep by a pin change, it enabled the WDT
+ * interrupt, rather than call this directly.
+ */
 void act()
 {
+    /* Many things here are duration based, so ensure the number of interrupts is tracked.*/
     count++;
 
     /*  Startup state. Beep for a while. */
@@ -76,12 +115,13 @@ void act()
             if (count == STARTUP_DELAY) {
 
                 /*  Disable WDT interrupt */
-                WDTCR &= ~_BV(WDIE);
+                disable_wdie();
 
+                /* Enable pin change interrupt - alarm switch, etc. */
                 enable_pcie();
 
-                /*  Alarm off. */
-                PORTB &= ~_BV(PB4);
+                /* Make sure the alarm doesn't stay on */
+                alarm_off();
 
                 /*  Reset count for the next state which needs it. */
                 count = 0;
@@ -89,41 +129,39 @@ void act()
             }
             /*  Otherwise we're still in STARTUP, so toggle the alarm. */
             else {
-                PORTB ^= _BV(PB4);
+                toggle_alarm();
             }
             break;
         case ARMED:
-            if (toggled == 1) {
-                state = ALERT_1;
-            }
+            /* Nothing to do here. The interrupt updates the state to ALERT_1 */
             break;
         case ALERT_1:
-                /*  Enable the indicator LED - stays on forever now :) */
-                PORTB |= _BV(PB3);
+            /*  Enable the indicator LED - stays on forever now :) */
+            led_on();
 
-                /*  Beep for a while. Then Transition to the next state */
-                /*  Leave the clock running. */
-                if (count == ALERT_1_DURATION) {
-                    state = ALERT_2;
-                    /*  Enable the alarm: */
-                    PORTB |= _BV(PB4);
+            /*  Beep for a while. Then Transition to the next state */
+            /*  Leave the clock running. */
+            if (count == ALERT_1_DURATION) {
+                state = ALERT_2;
+                /*  Enable the alarm: */
+                alarm_on();
 
-                    /*  Reset count for the next state which needs it. */
-                    count = 0;
-                }
-                /*  Otherwise we're still in ALERT_1, so blink. */
-                else {
-                    PORTB ^= _BV(PB4);
-                }
-                break;
-                /*  In ALERT_2 we just make a noise for a while */
+                /*  Reset count for the next state which needs it. */
+                count = 0;
+            }
+            /*  Otherwise we're still in ALERT_1, so blink. */
+            else {
+                toggle_alarm();
+            }
+            break;
         case ALERT_2:
-                /*  The LED was swtiched on at the end of the last state. Leave it for now. */
+                /*  The LED was switched on at the end of the last state. Leave it for now. */
                 if (count == ALERT_2_DURATION) {
                     /*  Now disable the clock, and transition to the final state */
-                    WDTCR &= ~_BV(WDIE);
-                    PORTB &= ~_BV(PB4);
+                    disable_wdie();
+
                     state = ALERT_3;
+                    alarm_off();
 
                     /*  Reset count for the next state which needs it. */
                     count = 0;
@@ -142,28 +180,34 @@ ISR(WDT_vect) {
 
 /*  External interrupt 0 */
 ISR(PCINT0_vect) {
+    /* Disable the interrupt. We can only be triggered once. */
     disable_pcie();
 
-    toggled = 1;
+    /* Mark the fact that the alarm has been toggled */
+    state = ALERT_1;
+
     /*  re-enable the clock */
-    WDTCR |= _BV(WDIE);
+    enable_wdie();
 }
 
+/* Initialise WDT and interrupts */
 void init (){
-    /* PB4 is digital output */
-    DDRB |= _BV (PB4);
+    /* ALARM_PIN is digital output */
+    DDRB |= _BV (ALARM_PIN);
     /* PB3 is digital output */
-    DDRB |= _BV (PB3);
+    DDRB |= _BV (LED_PIN);
 
     /* Set up the watchdog timer - ~0.5s timeout */
     WDTCR = (1<<WDP2) | (1<<WDP0) | (1<<WDIE);
 
-    /* Enable pin change inerrupts */
-    enable_pcie();
+    /* Enable watchdog interrupt */
+    enable_wdie();
 
+    /* Use the lowest power sleep mode */
     set_sleep_mode(SLEEP_MODE_PWR_DOWN);
 }
 
+/* Start and go to sleep */
 int main (void)
 {
     cli();
