@@ -11,15 +11,20 @@
     After this initial delay, the system sleeps, waiting for a pin-change
     interrupt (on pin 5 by default). When a change is detected on this pin, the
     alarm enters an initial alert phase during which it beeps to indicate it
-    has been activated. An indicator LED is also activated. The length of this
-    phase is defined by the constant ALERT_1_DURATION.
+    has been activated.  The length of this phase is defined by the constant
+    ALERT_1_DURATION.
 
     After the second delay, the alarm becomes fully active and the alarm siren
-    goes off for a period defined by ALERT_2_DURATION.
-    
+    goes off for a period defined by ALERT_2_DURATION. An indicator LED is also
+    activated.
+
+    A jumper allows ALERT_1 to be configured as a warning state. When set,
+    the siren will only be activated if the alarm input pin is still low at the
+    end of this phase.
+
     Finally, a jumper allows configuration of repeated alerting. If this is enabled,
     after the alarm has gone off, it will sleep for WAIT_DURATION before
-    becoming enabled once again. Because the alarm is triggered by pin changes, not 
+    becoming enabled once again. Because the alarm is triggered by pin changes, not
     just a set pin value, this should not result in too many false positives.
 
     To prevent too much annoyance, and save battery, the maximum number of
@@ -50,9 +55,11 @@
 #define WAIT_DURATION 60
 #define MAX_ALERTS 5
 
-#define ALARM_PIN PB4
-#define LED_PIN PB3
+#define ALARM_INPUT_PIN PB0
 #define MULTI_ALERT_PIN PB1
+#define WARNING_PIN PB2
+#define ALARM_PIN PB3
+#define LED_PIN PB4
 
 enum states {
     STARTUP,
@@ -114,7 +121,7 @@ void led_on()
     PORTB |= _BV(LED_PIN);
 }
 
-/* Allow some parameters to be set using jumpers 
+/* Allow some parameters to be set using jumpers
  *
  * The first determines if the alarm can go off more than once.
  * Check if the bit is clear, since these are pulled up internally.
@@ -122,7 +129,15 @@ void led_on()
  */
 
 int allow_multiple_alerts() {
-    return bit_is_clear(PINB, MULTI_ALERT_PIN); 
+    return bit_is_clear(PINB, MULTI_ALERT_PIN);
+}
+
+int allow_warnings() {
+    return bit_is_clear(PINB, WARNING_PIN);
+}
+
+int alarm_pin_active() {
+    return bit_is_clear(PINB, ALARM_INPUT_PIN);
 }
 
 void enable_alarm() {
@@ -165,15 +180,24 @@ void act()
             /* Nothing to do here. The interrupt updates the state to ALERT_1 */
             break;
         case ALERT_1:
-            /*  Enable the indicator LED - stays on forever now :) */
-            led_on();
 
             /*  Beep for a while. Then Transition to the next state */
             /*  Leave the clock running. */
             if (count == ALERT_1_DURATION) {
-                state = ALERT_2;
-                /*  Sound the alarm: */
-                alarm_on();
+
+                /* If warnings are enabled, check the pin state is still low before sounding the alarm. */
+
+                /* If the pin isn't still low, transition to the ARMED state */
+                if (allow_warnings() && ! alarm_pin_active()) {
+                    enable_alarm();
+                    state = ARMED;
+                }
+                /*  Otherwise sound the alarm: */
+                else {
+                    alarm_on();
+
+                    state = ALERT_2;
+                }
 
                 /*  Reset count for the next state which needs it. */
                 count = 0;
@@ -184,26 +208,28 @@ void act()
             }
             break;
         case ALERT_2:
-                /*  The LED was switched on at the end of the last state. Leave it for now. */
-                if (count == ALERT_2_DURATION) {
+            /*  Enable the indicator LED - stays on forever now :) */
+            led_on();
 
-                    /* We might allow the alarm to go off again. In which case switch to a 
-                     * different state but leave the clock */
-                    if (allow_multiple_alerts() && alert_count < MAX_ALERTS) {
-                        state = WAIT;
-                    }
-                    else {
-                        /*  Now disable the clock, and transition to the final state */
-                        disable_wdie();
+            if (count == ALERT_2_DURATION) {
 
-                        state = ALERT_3;
-                    }
-                    alarm_off();
-
-                    /*  Reset count for the next state which needs it. */
-                    count = 0;
+                /* We might allow the alarm to go off again. In which case switch to a
+                 * different state but leave the clock */
+                if (allow_multiple_alerts() && alert_count < MAX_ALERTS) {
+                    state = WAIT;
                 }
-                break;
+                else {
+                    /*  Now disable the clock, and transition to the final state */
+                    disable_wdie();
+
+                    state = ALERT_3;
+                }
+                alarm_off();
+
+                /*  Reset count for the next state which needs it. */
+                count = 0;
+            }
+            break;
         case ALERT_3:
                 /*  Nothing specific happens here. The LED should be on. */
                 break;
@@ -243,6 +269,7 @@ void init() {
     DDRB |= _BV (LED_PIN);
 
     /* Enable interal pull-up resitors for unused and input pins */
+    PORTB |= _BV(PB0);
     PORTB |= _BV(PB1);
     PORTB |= _BV(PB2);
     PORTB |= _BV(PB5);
